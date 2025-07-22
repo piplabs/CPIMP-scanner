@@ -481,7 +481,9 @@ func main() {
 		fmt.Printf("Targeting %d addresses (%d with known creation blocks)\n", len(config.TargetAddresses), validContracts)
 	} else {
 		fmt.Printf("Resuming address-based scan\n")
-		fmt.Printf("Previous progress: %d logs found, %d duplicate transactions\n", addressProgress.TotalLogs, addressProgress.DuplicateTxs)
+		if logLevel >= LOG_INFO {
+			fmt.Printf("Previous progress: %d logs found, %d duplicate transactions\n", addressProgress.TotalLogs, addressProgress.DuplicateTxs)
+		}
 
 		// Show address status
 		processed := 0
@@ -542,9 +544,9 @@ func main() {
 		fmt.Printf("\n📍 Scanning address %d/%d (%d remaining): %s\n",
 			addressIndex, totalAddressesToScan, remainingAddresses, address)
 		if info.CreationBlock > 0 {
-			fmt.Printf("Starting from creation block: %d\n", info.CreationBlock)
+			logInfo("Starting from creation block: %d", info.CreationBlock)
 		} else {
-			fmt.Printf("Creation block unknown, starting from block 0\n")
+			logInfo("Creation block unknown, starting from block 0")
 		}
 
 		startBlock := info.CreationBlock
@@ -567,89 +569,91 @@ func main() {
 				toBlock = endBlock
 			}
 
-			fmt.Printf("Scanning blocks %d to %d for %s...", fromBlock, toBlock, address)
+			logInfo("Scanning blocks %d to %d for %s...", fromBlock, toBlock, address)
 
-			// Log all transactions in each block in this range
-			fmt.Printf("\n  Block transaction details:\n")
-			for blockNum := fromBlock; blockNum <= toBlock; blockNum++ {
-				txHashes, err := getBlockTransactions(network.BlockscoutURL, blockNum)
-				if err != nil {
-					fmt.Printf("    Block %d: Error fetching transactions - %v\n", blockNum, err)
-					continue
-				}
+			// Log all transactions in each block in this range (DEBUG level only)
+			if logLevel >= LOG_DEBUG {
+				fmt.Printf("\n  Block transaction details:\n")
+				for blockNum := fromBlock; blockNum <= toBlock; blockNum++ {
+					txHashes, err := getBlockTransactions(network.BlockscoutURL, blockNum)
+					if err != nil {
+						fmt.Printf("    Block %d: Error fetching transactions - %v\n", blockNum, err)
+						continue
+					}
 
-				if len(txHashes) == 0 {
-					fmt.Printf("    Block %d: No transactions\n", blockNum)
-				} else {
-					fmt.Printf("    Block %d: %d transactions\n", blockNum, len(txHashes))
-					for i, txHash := range txHashes {
-						fmt.Printf("      TX %d: %s\n", i+1, txHash)
+					if len(txHashes) == 0 {
+						fmt.Printf("    Block %d: No transactions\n", blockNum)
+					} else {
+						fmt.Printf("    Block %d: %d transactions\n", blockNum, len(txHashes))
+						for i, txHash := range txHashes {
+							fmt.Printf("      TX %d: %s\n", i+1, txHash)
 
-						// Fetch and display logs for this transaction
-						logs, err := getTransactionLogs(network.BlockscoutURL, txHash)
-						if err != nil {
-							fmt.Printf("        Error fetching logs: %v\n", err)
-							continue
-						}
+							// Fetch and display logs for this transaction
+							logs, err := getTransactionLogs(network.BlockscoutURL, txHash)
+							if err != nil {
+								fmt.Printf("        Error fetching logs: %v\n", err)
+								continue
+							}
 
-						if len(logs) == 0 {
-							fmt.Printf("        No logs/events\n")
-						} else {
-							fmt.Printf("        %d logs/events:\n", len(logs))
-							for j, logEntry := range logs {
-								// Extract key fields from the log
-								address := ""
-								topics := []interface{}{}
-								data := ""
-								decoded := map[string]interface{}{}
+							if len(logs) == 0 {
+								fmt.Printf("        No logs/events\n")
+							} else {
+								fmt.Printf("        %d logs/events:\n", len(logs))
+								for j, logEntry := range logs {
+									// Extract key fields from the log
+									address := ""
+									topics := []interface{}{}
+									data := ""
+									decoded := map[string]interface{}{}
 
-								if addr, ok := logEntry["address"].(map[string]interface{}); ok {
-									if hash, exists := addr["hash"].(string); exists {
-										address = hash
-									}
-								}
-								if topicsArray, ok := logEntry["topics"].([]interface{}); ok {
-									topics = topicsArray
-								}
-								if dataStr, ok := logEntry["data"].(string); ok {
-									data = dataStr
-								}
-								if decodedData, ok := logEntry["decoded"].(map[string]interface{}); ok {
-									decoded = decodedData
-								}
-
-								fmt.Printf("          Log %d: address=%s\n", j+1, address)
-
-								// Show decoded event information if available
-								if methodCall, exists := decoded["method_call"].(string); exists {
-									fmt.Printf("                 event=%s\n", methodCall)
-									if params, exists := decoded["parameters"].([]interface{}); exists {
-										fmt.Printf("                 parameters:\n")
-										for k, param := range params {
-											if paramMap, ok := param.(map[string]interface{}); ok {
-												name := paramMap["name"]
-												value := paramMap["value"]
-												paramType := paramMap["type"]
-												indexed := paramMap["indexed"]
-												fmt.Printf("                   %d. %s (%s, indexed:%v) = %v\n", k+1, name, paramType, indexed, value)
-											}
+									if addr, ok := logEntry["address"].(map[string]interface{}); ok {
+										if hash, exists := addr["hash"].(string); exists {
+											address = hash
 										}
 									}
-								} else {
-									// Fallback to raw topic display
-									fmt.Printf("                 topics=%v\n", topics)
-								}
+									if topicsArray, ok := logEntry["topics"].([]interface{}); ok {
+										topics = topicsArray
+									}
+									if dataStr, ok := logEntry["data"].(string); ok {
+										data = dataStr
+									}
+									if decodedData, ok := logEntry["decoded"].(map[string]interface{}); ok {
+										decoded = decodedData
+									}
 
-								if len(data) > 100 {
-									fmt.Printf("                 data=%s... (%d chars)\n", data[:100], len(data))
-								} else if data != "" && data != "0x" {
-									fmt.Printf("                 data=%s\n", data)
+									fmt.Printf("          Log %d: address=%s\n", j+1, address)
+
+									// Show decoded event information if available
+									if methodCall, exists := decoded["method_call"].(string); exists {
+										fmt.Printf("                 event=%s\n", methodCall)
+										if params, exists := decoded["parameters"].([]interface{}); exists {
+											fmt.Printf("                 parameters:\n")
+											for k, param := range params {
+												if paramMap, ok := param.(map[string]interface{}); ok {
+													name := paramMap["name"]
+													value := paramMap["value"]
+													paramType := paramMap["type"]
+													indexed := paramMap["indexed"]
+													fmt.Printf("                   %d. %s (%s, indexed:%v) = %v\n", k+1, name, paramType, indexed, value)
+												}
+											}
+										}
+									} else {
+										// Fallback to raw topic display
+										fmt.Printf("                 topics=%v\n", topics)
+									}
+
+									if len(data) > 100 {
+										fmt.Printf("                 data=%s... (%d chars)\n", data[:100], len(data))
+									} else if data != "" && data != "0x" {
+										fmt.Printf("                 data=%s\n", data)
+									}
 								}
 							}
 						}
 					}
 				}
-			}
+			} // End of DEBUG level transaction logging
 
 			// Measure API call time
 			apiStart := time.Now()
@@ -672,8 +676,8 @@ func main() {
 			addressProgress.TotalLogs += len(logs)
 			addressLogs += len(logs)
 
-			// Log details about found events
-			if len(logs) > 0 {
+			// Log details about found events (DEBUG level only)
+			if len(logs) > 0 && logLevel >= LOG_DEBUG {
 				fmt.Printf("\n  Found %d Upgraded events in this chunk:\n", len(logs))
 				for i, logEntry := range logs {
 					fmt.Printf("    Event %d: tx=%s, block=%s, address=%s\n",
@@ -688,9 +692,13 @@ func main() {
 					chunkDuplicates++
 					addressProgress.DuplicateTxs++
 					addressDuplicates++
-					fmt.Printf("\n  *** DUPLICATE FOUND *** Transaction %s has %d Upgraded events:\n", txHash, len(txLogs))
-					for i, txLog := range txLogs {
-						fmt.Printf("    Event %d: block=%s, address=%s\n", i+1, txLog.BlockNumber, txLog.Address)
+
+					// Only show duplicate details in DEBUG mode
+					if logLevel >= LOG_DEBUG {
+						fmt.Printf("\n  *** DUPLICATE FOUND *** Transaction %s has %d Upgraded events:\n", txHash, len(txLogs))
+						for i, txLog := range txLogs {
+							fmt.Printf("    Event %d: block=%s, address=%s\n", i+1, txLog.BlockNumber, txLog.Address)
+						}
 					}
 
 					// Get transaction details
@@ -715,10 +723,12 @@ func main() {
 				}
 			}
 
-			// Log chunk results
-			avgAPITime := totalAPITime / time.Duration(requestCount)
-			fmt.Printf(" Found %d logs, %d duplicate txs (avg API: %v)\n",
-				len(logs), chunkDuplicates, avgAPITime.Truncate(time.Millisecond))
+			// Log chunk results (DEBUG level only)
+			if logLevel >= LOG_DEBUG {
+				avgAPITime := totalAPITime / time.Duration(requestCount)
+				fmt.Printf(" Found %d logs, %d duplicate txs (avg API: %v)\n",
+					len(logs), chunkDuplicates, avgAPITime.Truncate(time.Millisecond))
+			}
 
 			// Adaptive rate limiting
 			if apiDuration > 500*time.Millisecond {
@@ -755,11 +765,15 @@ func main() {
 	elapsed := time.Since(startTime)
 	fmt.Printf("\n=== Scan Complete (ID: %s) ===\n", scanID)
 	fmt.Printf("Total time: %v\n", elapsed.Truncate(time.Second))
-	fmt.Printf("Total logs found: %d\n", addressProgress.TotalLogs)
-	fmt.Printf("Total transactions with 2+ Upgraded events: %d\n", addressProgress.DuplicateTxs)
-	fmt.Printf("Total API calls: %d\n", requestCount)
-	if requestCount > 0 {
-		fmt.Printf("Average API response time: %v\n", (totalAPITime / time.Duration(requestCount)).Truncate(time.Millisecond))
+
+	// Detailed results (INFO level and above)
+	if logLevel >= LOG_INFO {
+		fmt.Printf("Total logs found: %d\n", addressProgress.TotalLogs)
+		fmt.Printf("Total transactions with 2+ Upgraded events: %d\n", addressProgress.DuplicateTxs)
+		fmt.Printf("Total API calls: %d\n", requestCount)
+		if requestCount > 0 {
+			fmt.Printf("Average API response time: %v\n", (totalAPITime / time.Duration(requestCount)).Truncate(time.Millisecond))
+		}
 	}
 	fmt.Printf("Results saved to: %s\n", config.OutputFile)
 
