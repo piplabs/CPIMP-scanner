@@ -259,21 +259,31 @@ func processAddressCreationBlocks(blockscoutURL string, targetAddresses []string
 		creationBlock, creationTx, err := getContractCreationBlock(blockscoutURL, address)
 		if err != nil {
 			skippedContracts++
+
+			// Always log skipped addresses (minimal info)
 			if strings.Contains(err.Error(), "is_contract: false") {
+				fmt.Printf("⏭️  SKIP %s: Not a contract\n", address)
 				logDebug("SKIPPED %s: Not a smart contract (is_contract: false)", address)
 			} else if strings.Contains(err.Error(), "no implementations found") {
+				fmt.Printf("⏭️  SKIP %s: Not a proxy\n", address)
 				logDebug("SKIPPED %s: Not a proxy contract (no implementations found)", address)
 			} else if strings.Contains(err.Error(), "no creation transaction") {
+				fmt.Printf("⏭️  SKIP %s: No creation tx\n", address)
 				logDebug("SKIPPED %s: No creation transaction found", address)
 			} else if strings.Contains(err.Error(), "API returned status") {
+				fmt.Printf("❌ SKIP %s: API error\n", address)
 				logError("SKIPPED %s: API error - %v", address, err)
 			} else {
+				fmt.Printf("❌ SKIP %s: Error\n", address)
 				logError("SKIPPED %s: Failed to get creation info - %v", address, err)
 			}
 			// Don't include filtered addresses in the addressInfo map
 			continue
 		} else {
 			validContracts++
+
+			// Always log valid addresses (minimal info)
+			fmt.Printf("✅ VALID %s: Block %d\n", address, creationBlock)
 			logInfo("VALID PROXY CONTRACT %s: created in block %d (tx: %s)", address, creationBlock, creationTx)
 			addressInfo[address] = ContractInfo{
 				Address:       address,
@@ -481,6 +491,10 @@ func main() {
 		fmt.Printf("Targeting %d addresses (%d with known creation blocks)\n", len(config.TargetAddresses), validContracts)
 	} else {
 		fmt.Printf("Resuming address-based scan\n")
+		fmt.Printf("📋 Address Summary: %d total loaded, %d valid proxy contracts found\n",
+			len(config.TargetAddresses), len(addressProgress.Addresses))
+		fmt.Printf("   (Only proxy contracts with implementations are scanned for Upgraded events)\n")
+
 		if logLevel >= LOG_INFO {
 			fmt.Printf("Previous progress: %d logs found, %d duplicate transactions\n", addressProgress.TotalLogs, addressProgress.DuplicateTxs)
 		}
@@ -569,7 +583,7 @@ func main() {
 				toBlock = endBlock
 			}
 
-			logInfo("Scanning blocks %d to %d for %s...", fromBlock, toBlock, address)
+			logDebug("Scanning blocks %d to %d for %s...", fromBlock, toBlock, address)
 
 			// Log all transactions in each block in this range (DEBUG level only)
 			if logLevel >= LOG_DEBUG {

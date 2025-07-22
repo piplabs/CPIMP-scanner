@@ -43,6 +43,18 @@ Progress indicators work at **all log levels** (including ERROR) and show:
 
 These use `fmt.Printf` instead of the logging system, so they're always visible for monitoring.
 
+## Minimal Address Logging
+
+At **all log levels**, you'll see minimal address status:
+
+- `✅ VALID <address>: Block <creation_block>` - Valid proxy contracts that will be scanned
+- `⏭️ SKIP <address>: Not a contract` - EOA addresses (not smart contracts)
+- `⏭️ SKIP <address>: Not a proxy` - Smart contracts without proxy implementations
+- `⏭️ SKIP <address>: No creation tx` - Contracts missing creation transaction data
+- `❌ SKIP <address>: API error` - Failed to fetch address info due to API issues
+
+This ensures you always know which addresses are being processed, regardless of log level.
+
 ### Progress Output Examples
 ```
 📊 Progress: 20/84 (23.8%) | Valid: 15 | Skipped: 5
@@ -57,12 +69,20 @@ These use `fmt.Printf` instead of the logging system, so they're always visible 
 
 ### ERROR Level (Maximum Speed)
 ```
-📊 Progress: 20/84 (23.8%) | Valid: 15 | Skipped: 5
-🚀 Starting scan: 15 addresses total, 0 already completed
-📍 Scanning address 3/15 (12 remaining): 0x1234...abcd
-✅ Address 0x1234...abcd complete: 42 logs, 3 duplicate transactions
-📊 Overall Progress: 3/15 (20.0%) | Remaining: 12 addresses
-⏱️  Estimated time remaining: 2h15m30s (avg: 11m17s per address)
+📋 Address Summary: 83 total loaded, 33 valid proxy contracts found
+   (Only proxy contracts with implementations are scanned for Upgraded events)
+📋 Skipped addresses (not proxy contracts):
+   ⏭️ 0xa111dDbE973094F949D78Ad755cd560F8737B7e2
+   ⏭️ 0x06323fe9eEe6b78D6bD1DdFF51eEF790Aceec0bd
+   ⏭️ 0x0a2f440272749bBf0C56635f094310185921652A
+   ... and 47 more skipped addresses
+   Total skipped: 50 addresses
+
+🚀 Starting scan: 33 addresses total, 4 already completed
+📍 Scanning address 5/33 (28 remaining): 0x1434...af6
+✅ Address 0x1434...af6 complete: 42 logs, 3 duplicate transactions
+📊 Overall Progress: 5/33 (15.2%) | Remaining: 28 addresses
+⏱️ Estimated time remaining: 2h15m30s (avg: 11m17s per address)
 === Scan Complete (ID: abc123) ===
 Total time: 2h34m15s
 Results saved to: ethereum_address_list_scan.csv
