@@ -25,25 +25,32 @@ func ListActiveScans() {
 	fmt.Printf("Found %d active scan(s):\n\n", len(files))
 
 	for _, file := range files {
-		progress := loadProgress(file)
+		progress := loadAddressProgress(file)
 		if progress.ScanID == "" {
 			continue
 		}
 
-		// Calculate progress percentage
-		totalBlocks := progress.EndBlock - progress.StartBlock + 1
-		processedBlocks := progress.CurrentBlock - progress.StartBlock
-		percentage := float64(processedBlocks) / float64(totalBlocks) * 100
-
 		fmt.Printf("Scan ID: %s\n", progress.ScanID)
 		fmt.Printf("  Network: %s\n", progress.Network)
-		fmt.Printf("  Progress: %.1f%% (%d/%d blocks)\n", percentage, processedBlocks, totalBlocks)
-		fmt.Printf("  Current Block: %d\n", progress.CurrentBlock)
-		fmt.Printf("  Target Addresses: %d\n", progress.AddressCount)
-		fmt.Printf("  Logs Found: %d\n", progress.TotalLogs)
+		fmt.Printf("  Event Topic: %s\n", progress.EventTopic)
+		fmt.Printf("  Target Addresses: %d\n", len(progress.Addresses))
+		fmt.Printf("  Total Logs Found: %d\n", progress.TotalLogs)
 		fmt.Printf("  Duplicate Transactions: %d\n", progress.DuplicateTxs)
+		fmt.Printf("  Processed Transactions: %d\n", progress.ProcessedTxs)
 		fmt.Printf("  Last Updated: %s\n", progress.LastUpdated.Format("2006-01-02 15:04:05"))
 		fmt.Printf("  Progress File: %s\n", file)
+
+		// Show individual address status
+		if len(progress.Addresses) > 0 {
+			fmt.Printf("  Address Status:\n")
+			for addr, info := range progress.Addresses {
+				status := "pending"
+				if info.Processed {
+					status = "completed"
+				}
+				fmt.Printf("    %s: %s (creation block: %d)\n", addr, status, info.CreationBlock)
+			}
+		}
 		fmt.Println()
 	}
 }
@@ -109,40 +116,36 @@ func DeleteScan(scanID string) {
 // ShowScanDetails displays detailed information about a specific scan
 func ShowScanDetails(scanID string) {
 	progressFile := getProgressFileName(scanID)
-	progress := loadProgress(progressFile)
+	progress := loadAddressProgress(progressFile)
 
 	if progress.ScanID == "" {
 		fmt.Printf("Scan ID %s not found.\n", scanID)
 		return
 	}
 
-	// Calculate progress metrics
-	totalBlocks := progress.EndBlock - progress.StartBlock + 1
-	processedBlocks := progress.CurrentBlock - progress.StartBlock
-	percentage := float64(processedBlocks) / float64(totalBlocks) * 100
-
 	fmt.Printf("=== Scan Details ===\n")
 	fmt.Printf("Scan ID: %s\n", progress.ScanID)
 	fmt.Printf("Network: %s\n", progress.Network)
 	fmt.Printf("Event Topic: %s\n", progress.EventTopic)
-	fmt.Printf("Target Addresses: %d\n", progress.AddressCount)
-	fmt.Printf("Block Range: %d - %d (%d total)\n", progress.StartBlock, progress.EndBlock, totalBlocks)
-	fmt.Printf("Current Block: %d\n", progress.CurrentBlock)
-	fmt.Printf("Progress: %.2f%% (%d/%d blocks)\n", percentage, processedBlocks, totalBlocks)
-	fmt.Printf("Logs Found: %d\n", progress.TotalLogs)
+	fmt.Printf("Target Addresses: %d\n", len(progress.Addresses))
+	fmt.Printf("Total Logs Found: %d\n", progress.TotalLogs)
 	fmt.Printf("Duplicate Transactions: %d\n", progress.DuplicateTxs)
 	fmt.Printf("Processed Transactions: %d\n", progress.ProcessedTxs)
 	fmt.Printf("Last Updated: %s\n", progress.LastUpdated.Format("2006-01-02 15:04:05 MST"))
 	fmt.Printf("Progress File: %s\n", progressFile)
 
-	// Estimate completion time if scan is active
-	if processedBlocks > 0 && processedBlocks < totalBlocks {
-		elapsed := time.Since(progress.LastUpdated)
-		if elapsed < 24*time.Hour { // Only estimate if recently updated
-			remainingBlocks := totalBlocks - processedBlocks
-			timePerBlock := elapsed / time.Duration(processedBlocks)
-			estimatedTimeRemaining := timePerBlock * time.Duration(remainingBlocks)
-			fmt.Printf("Estimated Time Remaining: %v\n", estimatedTimeRemaining.Truncate(time.Second))
+	// Show individual address details
+	if len(progress.Addresses) > 0 {
+		fmt.Printf("\nAddress Details:\n")
+		for addr, info := range progress.Addresses {
+			status := "pending"
+			if info.Processed {
+				status = "completed"
+			}
+			fmt.Printf("  %s:\n", addr)
+			fmt.Printf("    Status: %s\n", status)
+			fmt.Printf("    Creation Block: %d\n", info.CreationBlock)
+			fmt.Printf("    Creation Tx: %s\n", info.CreationTx)
 		}
 	}
 }

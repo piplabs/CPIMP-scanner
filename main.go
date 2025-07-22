@@ -16,6 +16,33 @@ import (
 	"time"
 )
 
+// Logging levels
+const (
+	LOG_ERROR = 0
+	LOG_INFO  = 1
+	LOG_DEBUG = 2
+)
+
+var logLevel = LOG_INFO // Default to INFO level
+
+func logDebug(format string, args ...interface{}) {
+	if logLevel >= LOG_DEBUG {
+		log.Printf("[DEBUG] "+format, args...)
+	}
+}
+
+func logInfo(format string, args ...interface{}) {
+	if logLevel >= LOG_INFO {
+		log.Printf("[INFO] "+format, args...)
+	}
+}
+
+func logError(format string, args ...interface{}) {
+	if logLevel >= LOG_ERROR {
+		log.Printf("[ERROR] "+format, args...)
+	}
+}
+
 type LogEntry struct {
 	TransactionHash string `json:"transactionHash"`
 	BlockNumber     string `json:"blockNumber"`
@@ -139,9 +166,16 @@ func getContractCreationBlock(blockscoutURL, address string) (uint64, string, er
 		} `json:"implementations"`
 	}
 
+	// Debug: Log the raw API response
+	logDebug("Address API Response for %s: %s", address, string(body))
+
 	if err := json.Unmarshal(body, &addressInfo); err != nil {
 		return 0, "", fmt.Errorf("failed to parse address response: %v", err)
 	}
+
+	// Debug: Log parsed fields
+	logDebug("Parsed for %s: is_contract=%t, creation_tx=%s, implementations=%d",
+		address, addressInfo.IsContract, addressInfo.CreationTransactionHash, len(addressInfo.Implementations))
 
 	// Check if this is a smart contract
 	if !addressInfo.IsContract {
@@ -206,28 +240,41 @@ func getTransactionBlockNumber(blockscoutURL, txHash string) (uint64, error) {
 func processAddressCreationBlocks(blockscoutURL string, targetAddresses []string) map[string]ContractInfo {
 	addressInfo := make(map[string]ContractInfo)
 
-	log.Printf("Processing %d addresses for creation blocks...", len(targetAddresses))
+	logInfo("Processing %d addresses for creation blocks...", len(targetAddresses))
+
+	// Progress tracking
+	totalAddresses := len(targetAddresses)
+	validContracts := 0
+	skippedContracts := 0
 
 	for i, address := range targetAddresses {
-		log.Printf("Processing address %d/%d: %s", i+1, len(targetAddresses), address)
+		// Show progress every 10 addresses or at key milestones (always shown regardless of log level)
+		if i%10 == 0 || i == totalAddresses-1 {
+			progress := float64(i+1) / float64(totalAddresses) * 100
+			fmt.Printf("📊 Progress: %d/%d (%.1f%%) | Valid: %d | Skipped: %d\n",
+				i+1, totalAddresses, progress, validContracts, skippedContracts)
+		}
+		logDebug("Processing address %d/%d: %s", i+1, len(targetAddresses), address)
 
 		creationBlock, creationTx, err := getContractCreationBlock(blockscoutURL, address)
 		if err != nil {
+			skippedContracts++
 			if strings.Contains(err.Error(), "is_contract: false") {
-				log.Printf("SKIPPED %s: Not a smart contract (is_contract: false)", address)
+				logDebug("SKIPPED %s: Not a smart contract (is_contract: false)", address)
 			} else if strings.Contains(err.Error(), "no implementations found") {
-				log.Printf("SKIPPED %s: Not a proxy contract (no implementations found)", address)
+				logDebug("SKIPPED %s: Not a proxy contract (no implementations found)", address)
 			} else if strings.Contains(err.Error(), "no creation transaction") {
-				log.Printf("SKIPPED %s: No creation transaction found", address)
+				logDebug("SKIPPED %s: No creation transaction found", address)
 			} else if strings.Contains(err.Error(), "API returned status") {
-				log.Printf("SKIPPED %s: API error - %v", address, err)
+				logError("SKIPPED %s: API error - %v", address, err)
 			} else {
-				log.Printf("SKIPPED %s: Failed to get creation info - %v", address, err)
+				logError("SKIPPED %s: Failed to get creation info - %v", address, err)
 			}
 			// Don't include filtered addresses in the addressInfo map
 			continue
 		} else {
-			log.Printf("VALID PROXY CONTRACT %s: created in block %d (tx: %s)", address, creationBlock, creationTx)
+			validContracts++
+			logInfo("VALID PROXY CONTRACT %s: created in block %d (tx: %s)", address, creationBlock, creationTx)
 			addressInfo[address] = ContractInfo{
 				Address:       address,
 				CreationBlock: creationBlock,
@@ -240,7 +287,7 @@ func processAddressCreationBlocks(blockscoutURL string, targetAddresses []string
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	log.Printf("SUMMARY: Found %d valid proxy contracts out of %d addresses processed", len(addressInfo), len(targetAddresses))
+	logInfo("SUMMARY: Found %d valid proxy contracts out of %d addresses processed", len(addressInfo), len(targetAddresses))
 	return addressInfo
 }
 
@@ -256,7 +303,7 @@ func loadAddressProgress(progressFile string) AddressProgress {
 
 	var progress AddressProgress
 	if err := json.NewDecoder(file).Decode(&progress); err != nil {
-		log.Printf("Warning: Could not decode progress file: %v", err)
+		logError("Warning: Could not decode progress file: %v", err)
 		return AddressProgress{
 			Addresses: make(map[string]ContractInfo),
 		}
@@ -271,13 +318,13 @@ func saveAddressProgress(progressFile string, progress AddressProgress) {
 
 	file, err := os.Create(progressFile)
 	if err != nil {
-		log.Printf("Warning: Could not save progress: %v", err)
+		logError("Warning: Could not save progress: %v", err)
 		return
 	}
 	defer file.Close()
 
 	if err := json.NewEncoder(file).Encode(progress); err != nil {
-		log.Printf("Warning: Could not encode progress: %v", err)
+		logError("Warning: Could not encode progress: %v", err)
 	}
 }
 
@@ -351,6 +398,22 @@ func getTransactionLogs(blockscoutURL string, txHash string) ([]map[string]inter
 }
 
 func main() {
+	// Set log level from environment variable
+	if level := os.Getenv("LOG_LEVEL"); level != "" {
+		switch strings.ToUpper(level) {
+		case "ERROR":
+			logLevel = LOG_ERROR
+		case "INFO":
+			logLevel = LOG_INFO
+		case "DEBUG":
+			logLevel = LOG_DEBUG
+		default:
+			logLevel = LOG_INFO
+		}
+	}
+
+	logInfo("Starting CPIMP Scanner with log level: %d", logLevel)
+
 	// Load configuration
 	config := DefaultConfig()
 
@@ -453,14 +516,31 @@ func main() {
 	var totalAPITime time.Duration
 	requestCount := 0
 
-	// Scan each address individually from its creation block
-	for address, info := range addressProgress.Addresses {
+	// Progress tracking for address scanning
+	totalAddressesToScan := len(addressProgress.Addresses)
+	completedAddresses := 0
+	for _, info := range addressProgress.Addresses {
 		if info.Processed {
-			fmt.Printf("Skipping already processed address: %s\n", address)
+			completedAddresses++
+		}
+	}
+
+	fmt.Printf("\n🚀 Starting scan: %d addresses total, %d already completed\n", totalAddressesToScan, completedAddresses)
+
+	// Scan each address individually from its creation block
+	addressIndex := 0
+	for address, info := range addressProgress.Addresses {
+		addressIndex++
+
+		if info.Processed {
+			fmt.Printf("⏭️  Skipping already processed address %d/%d: %s\n", addressIndex, totalAddressesToScan, address)
 			continue
 		}
 
-		fmt.Printf("\n=== Scanning address: %s ===\n", address)
+		// Show progress (always visible regardless of log level)
+		remainingAddresses := totalAddressesToScan - completedAddresses
+		fmt.Printf("\n📍 Scanning address %d/%d (%d remaining): %s\n",
+			addressIndex, totalAddressesToScan, remainingAddresses, address)
 		if info.CreationBlock > 0 {
 			fmt.Printf("Starting from creation block: %d\n", info.CreationBlock)
 		} else {
@@ -579,7 +659,7 @@ func main() {
 			requestCount++
 
 			if err != nil {
-				log.Printf("Error fetching logs for blocks %d-%d: %v", fromBlock, toBlock, err)
+				logError("Error fetching logs for blocks %d-%d: %v", fromBlock, toBlock, err)
 				continue
 			}
 
@@ -616,7 +696,7 @@ func main() {
 					// Get transaction details
 					fromAddress, err := getTransactionFrom(network.BlockscoutURL, txHash)
 					if err != nil {
-						log.Printf("Error getting transaction details for %s: %v", txHash, err)
+						logError("Error getting transaction details for %s: %v", txHash, err)
 						fromAddress = "Unknown"
 					}
 
@@ -653,7 +733,22 @@ func main() {
 		addressProgress.Addresses[address] = info
 		saveAddressProgress(progressFile, addressProgress)
 
-		fmt.Printf("Address %s complete: %d logs, %d duplicate transactions\n", address, addressLogs, addressDuplicates)
+		completedAddresses++
+		remainingAddresses = totalAddressesToScan - completedAddresses
+		overallProgress := float64(completedAddresses) / float64(totalAddressesToScan) * 100
+
+		fmt.Printf("✅ Address %s complete: %d logs, %d duplicate transactions\n", address, addressLogs, addressDuplicates)
+		fmt.Printf("📊 Overall Progress: %d/%d (%.1f%%) | Remaining: %d addresses\n",
+			completedAddresses, totalAddressesToScan, overallProgress, remainingAddresses)
+
+		// Estimate time remaining
+		if completedAddresses > 0 && remainingAddresses > 0 {
+			elapsedSoFar := time.Since(startTime)
+			avgTimePerAddress := elapsedSoFar / time.Duration(completedAddresses)
+			estimatedTimeRemaining := avgTimePerAddress * time.Duration(remainingAddresses)
+			fmt.Printf("⏱️  Estimated time remaining: %v (avg: %v per address)\n",
+				estimatedTimeRemaining.Truncate(time.Second), avgTimePerAddress.Truncate(time.Second))
+		}
 	}
 
 	// Final summary

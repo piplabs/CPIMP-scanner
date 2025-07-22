@@ -69,5 +69,5 @@ type ScannerConfig struct {
 // Default configuration - uses Story network
 func DefaultConfig() ScannerConfig {
 	// return StoryAddressListConfig("eco_projects.txt")
-	return EthereumNetworkListConfig("eco_projects.txt")
+	return StoryAddressListConfig("eco_projects.txt")
 }
